@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------
+# ติดตั้ง torch แยกก่อนเสมอ เพราะต้องเลือกให้ตรง CUDA ของเครื่อง
+#   CUDA 12.1 :  pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   CUDA 11.8 :  pip install torch --index-url https://download.pytorch.org/whl/cu118
+#   CPU / Mac :  pip install torch
+# แล้วค่อย  pip install -r requirements.txt
+# ---------------------------------------------------------------
+
+transformers>=4.44,<5
+peft>=0.11
+accelerate>=0.33
+datasets>=2.20
+safetensors>=0.4
+huggingface_hub>=0.24
+
+# quantization 4-bit — Linux/Windows + NVIDIA เท่านั้น (Mac ข้ามได้)
+bitsandbytes>=0.43 ; platform_system != "Darwin"
+
+# metrics + กราฟ
+scikit-learn>=1.3
+numpy>=1.24
+matplotlib>=3.7
+
+# ตัวช่วย
+python-dotenv>=1.0
+pythainlp>=4.0
