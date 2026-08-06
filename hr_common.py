@@ -297,12 +297,16 @@ def configure_safety_limits():
 
 def get_max_memory(rt):
     """
-    สร้าง max_memory map เมื่อ VRAM มีจำกัด และไม่ได้ใช้ 4-bit quant
-    หมายเหตุ: bitsandbytes 4-bit quant ไม่รองรับการ offload ไป CPU
-    การจำกัด max_memory จะทำให้ transformers พยายามส่ง layer ไป CPU และเกิด ValueError
+    สร้าง max_memory map สำหรับ GPU
+    บน Windows หากไม่ระบุ max_memory ตัว accelerate จะวัดเฉพาะ free VRAM ที่เหลืออยู่
+    (ซึ่งโดน Windows OS/Display ดึงไปบางส่วน) ทำให้มองเห็น VRAM แค่ ~4.2GB
+    แล้วแอบย้าย 1-2 layers ไป CPU จนเกิด ValueError ใน 4-bit quant
+    การตั้ง max_memory ให้เต็มขนาด GPU จริง (เช่น 5.8GB) จะบอกให้ accelerate
+    ใส่โมเดลทั้งตัว (~5.1GB) ลงบน GPU 0 โดยไม่โยนไป CPU
     """
-    if not rt["use_4bit"] and rt["device"] == "cuda" and rt["vram_gb"] and rt["vram_gb"] <= 7.0:
-        return {0: f"{int(rt['vram_gb'] - 1.0)}GB", "cpu": "12GB"}
+    if rt["device"] == "cuda" and rt["vram_gb"]:
+        gpu_capacity = f"{max(5.5, rt['vram_gb'] - 0.2):.1f}GB"
+        return {0: gpu_capacity}
     return None
 
 
@@ -324,30 +328,17 @@ def get_load_kwargs(rt):
     configure_safety_limits()
     quant = build_quant_config(rt)
     max_mem = get_max_memory(rt)
-    offload_dir = PROJECT_DIR / "offload"
-    offload_dir.mkdir(parents=True, exist_ok=True)
-
-    # บน Windows/GPU 6GB การใช้ device_map="auto" จะทำให้ accelerate คำนวณ VRAM ที่เหลือ
-    # (ซึ่งโดน Windows OS/Display ดึงไปบางส่วน) แล้วพยายามแอบส่ง 1-2 layers ไป CPU
-    # ทำให้เกิด ValueError จาก bitsandbytes 4-bit validator
-    # การบังคับ device_map={"": 0} จะเจาะจงให้โมเดลทั้งตัวลง GPU 0 โดยไม่แบ่งไป CPU
-    if rt["device"] == "cuda":
-        dev_map = {"": 0} if quant is not None else "auto"
-    else:
-        dev_map = None
 
     kwargs = {
         "pretrained_model_name_or_path": MODEL_ID,
         "quantization_config": quant,
-        "dtype": rt["dtype"],
-        "device_map": dev_map,
+        "torch_dtype": rt["dtype"],
+        "device_map": "auto" if rt["device"] == "cuda" else None,
         "low_cpu_mem_usage": True,
         "token": HF_TOKEN,
     }
-    if max_mem and quant is None:
+    if max_mem:
         kwargs["max_memory"] = max_mem
-        kwargs["offload_folder"] = str(offload_dir)
-        kwargs["offload_state_dict"] = True
     return kwargs
 
 
