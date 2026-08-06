@@ -32,8 +32,6 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(**C.get_load_kwargs(rt))
     if rt["device"] != "cuda":
         model = model.to(rt["device"])
-    if len(tokenizer) > model.get_input_embeddings().weight.shape[0]:
-        model.resize_token_embeddings(len(tokenizer))
     if not args.base_only:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, str(C.ADAPTER_DIR))

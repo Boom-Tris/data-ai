@@ -202,9 +202,6 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(**C.get_load_kwargs(rt))
     if rt["device"] != "cuda":
         model = model.to(rt["device"])
-    if len(tokenizer) > model.get_input_embeddings().weight.shape[0]:
-        model.resize_token_embeddings(len(tokenizer))
-        print(f"ขยาย embedding เป็น {len(tokenizer)} (เพราะเพิ่ม pad token)")
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
 

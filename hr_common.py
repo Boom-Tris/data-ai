@@ -399,22 +399,21 @@ def render_chat(tokenizer, messages, add_generation_prompt=False):
 
 def load_tokenizer(path=None):
     """
-    โหลด tokenizer แล้ว **แยก pad ออกจาก eos**
+    โหลด tokenizer แล้วตั้ง pad_token
 
-    บั๊กเดิม: โน้ตบุ๊กตั้ง tokenizer.pad_token = tokenizer.eos_token
-    ตอนเทรน collator จะ mask ทุกตำแหน่งที่ == pad_token_id ให้เป็น -100
-    ซึ่งเผลอ mask EOS ตัวจริงท้ายประโยคไปด้วย → โมเดล "ไม่เคยถูกสอนให้หยุด"
-    ผลคือตอน generate มันจะพ่นต่อไปเรื่อยๆ หลังจบ JSON แล้ว
+    ใช้ eos_token เป็น pad_token เพื่อไม่ต้องเรียก resize_token_embeddings
+    ซึ่งจะ OOM บน GPU VRAM ต่ำ (เช่น RTX 3050 6GB)
+
+    บั๊กเดิมที่ pad==eos ทำให้ EOS ถูก mask นั้นเกิดจาก DataCollatorForLanguageModeling
+    ซึ่งเราไม่ได้ใช้แล้ว — PadCollator ของเราจัดการ masking ด้วย attention_mask=0
+    และ labels=-100 อย่างถูกต้อง EOS ตัวจริงท้ายประโยคจะไม่ถูก mask
     """
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(path or MODEL_ID), token=HF_TOKEN)
     if tok.pad_token is None or tok.pad_token_id == tok.eos_token_id:
-        added = tok.add_special_tokens({"pad_token": "<|hr_pad|>"})
-        if added == 0 and tok.pad_token is None:
-            tok.pad_token = tok.eos_token
-            print("⚠️  เพิ่ม pad token แยกไม่สำเร็จ ใช้ eos เป็น pad (EOS จะถูก mask)")
-        else:
-            print(f"✅ เพิ่ม pad token แยกจาก eos แล้ว (pad_id={tok.pad_token_id}, eos_id={tok.eos_token_id})")
+        tok.pad_token = tok.eos_token
+        tok.pad_token_id = tok.eos_token_id
+        print(f"✅ ตั้ง pad token = eos token (pad_id={tok.pad_token_id}, eos_id={tok.eos_token_id})")
     return tok
 
 
