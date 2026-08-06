@@ -327,15 +327,24 @@ def get_load_kwargs(rt):
     offload_dir = PROJECT_DIR / "offload"
     offload_dir.mkdir(parents=True, exist_ok=True)
 
+    # บน Windows/GPU 6GB การใช้ device_map="auto" จะทำให้ accelerate คำนวณ VRAM ที่เหลือ
+    # (ซึ่งโดน Windows OS/Display ดึงไปบางส่วน) แล้วพยายามแอบส่ง 1-2 layers ไป CPU
+    # ทำให้เกิด ValueError จาก bitsandbytes 4-bit validator
+    # การบังคับ device_map={"": 0} จะเจาะจงให้โมเดลทั้งตัวลง GPU 0 โดยไม่แบ่งไป CPU
+    if rt["device"] == "cuda":
+        dev_map = {"": 0} if quant is not None else "auto"
+    else:
+        dev_map = None
+
     kwargs = {
         "pretrained_model_name_or_path": MODEL_ID,
         "quantization_config": quant,
-        "torch_dtype": rt["dtype"] if quant is None else None,
-        "device_map": "auto" if rt["device"] == "cuda" else None,
+        "dtype": rt["dtype"],
+        "device_map": dev_map,
         "low_cpu_mem_usage": True,
         "token": HF_TOKEN,
     }
-    if max_mem:
+    if max_mem and quant is None:
         kwargs["max_memory"] = max_mem
         kwargs["offload_folder"] = str(offload_dir)
         kwargs["offload_state_dict"] = True
