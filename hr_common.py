@@ -295,21 +295,6 @@ def configure_safety_limits():
             pass
 
 
-def get_max_memory(rt):
-    """
-    สร้าง max_memory map สำหรับ GPU
-    บน Windows หากไม่ระบุ max_memory ตัว accelerate จะวัดเฉพาะ free VRAM ที่เหลืออยู่
-    (ซึ่งโดน Windows OS/Display ดึงไปบางส่วน) ทำให้มองเห็น VRAM แค่ ~4.2GB
-    แล้วแอบย้าย 1-2 layers ไป CPU จนเกิด ValueError ใน 4-bit quant
-    การตั้ง max_memory ให้เต็มขนาด GPU จริง (เช่น 5.8GB) จะบอกให้ accelerate
-    ใส่โมเดลทั้งตัว (~5.1GB) ลงบน GPU 0 โดยไม่โยนไป CPU
-    """
-    if rt["device"] == "cuda" and rt["vram_gb"]:
-        gpu_capacity = f"{max(5.5, rt['vram_gb'] - 0.2):.1f}GB"
-        return {0: gpu_capacity}
-    return None
-
-
 def build_quant_config(rt):
     """สร้าง BitsAndBytesConfig เฉพาะเมื่อทำได้จริง ไม่งั้นคืน None"""
     if not rt["use_4bit"]:
@@ -324,21 +309,38 @@ def build_quant_config(rt):
 
 
 def get_load_kwargs(rt):
-    """คืน dict สำหรับ AutoModelForCausalLM.from_pretrained พร้อมระบบป้องกัน VRAM Overflown & CPU Offloading"""
+    """
+    คืน dict สำหรับ AutoModelForCausalLM.from_pretrained
+
+    ปัญหาบน Windows + RTX 3050 6GB:
+      - Windows OS/Desktop Window Manager จอง VRAM ไป ~1.5 GB
+      - accelerate ดู free VRAM ผ่าน torch.cuda.mem_get_info() เห็นเหลือแค่ ~4.2 GB
+      - โมเดล Typhoon-8B 4-bit ต้องการ ~5.1 GB
+      - accelerate จึงแอบย้าย 1-2 layers ไป CPU → bitsandbytes โยน ValueError
+
+    วิธีแก้: ใช้ device_map={"": 0} แทน "auto"
+      - บังคับโหลดทุก layer ลง GPU 0 โดยตรง ข้าม accelerate auto-allocation ทั้งหมด
+      - PyTorch จะ allocate VRAM จากส่วนที่ reserve ได้ (ไม่จำกัดแค่ free ที่เห็น)
+      - ถ้า VRAM ไม่พอจริงจะเป็น CUDA OOM (ซึ่งชัดเจนกว่า) ไม่ใช่ ValueError
+    """
     configure_safety_limits()
     quant = build_quant_config(rt)
-    max_mem = get_max_memory(rt)
+
+    # device_map={"": 0} = บังคับทุก layer ลง cuda:0 โดยตรง
+    # device_map="auto"  = ให้ accelerate คำนวณ (ซึ่งพังบน Windows VRAM ต่ำ)
+    if rt["device"] == "cuda":
+        dev_map = {"": 0}
+    else:
+        dev_map = None
 
     kwargs = {
         "pretrained_model_name_or_path": MODEL_ID,
         "quantization_config": quant,
-        "torch_dtype": rt["dtype"],
-        "device_map": "auto" if rt["device"] == "cuda" else None,
+        "dtype": rt["dtype"],
+        "device_map": dev_map,
         "low_cpu_mem_usage": True,
         "token": HF_TOKEN,
     }
-    if max_mem:
-        kwargs["max_memory"] = max_mem
     return kwargs
 
 
