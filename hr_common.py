@@ -297,11 +297,12 @@ def configure_safety_limits():
 
 def get_max_memory(rt):
     """
-    สร้าง max_memory map เมื่อ VRAM มีจำกัด (เช่น RTX 3050 6GB)
-    จำกัด GPU 0 ไม่เกิน 4.0 GB ส่วนเกินส่งไป CPU RAM (12 GB)
+    สร้าง max_memory map เมื่อ VRAM มีจำกัด และไม่ได้ใช้ 4-bit quant
+    หมายเหตุ: bitsandbytes 4-bit quant ไม่รองรับการ offload ไป CPU
+    การจำกัด max_memory จะทำให้ transformers พยายามส่ง layer ไป CPU และเกิด ValueError
     """
-    if rt["device"] == "cuda" and rt["vram_gb"] and rt["vram_gb"] <= 7.0:
-        return {0: "4.0GB", "cpu": "12GB"}
+    if not rt["use_4bit"] and rt["device"] == "cuda" and rt["vram_gb"] and rt["vram_gb"] <= 7.0:
+        return {0: f"{int(rt['vram_gb'] - 1.0)}GB", "cpu": "12GB"}
     return None
 
 
@@ -329,7 +330,7 @@ def get_load_kwargs(rt):
     kwargs = {
         "pretrained_model_name_or_path": MODEL_ID,
         "quantization_config": quant,
-        "dtype": rt["dtype"] if quant is None else None,
+        "torch_dtype": rt["dtype"] if quant is None else None,
         "device_map": "auto" if rt["device"] == "cuda" else None,
         "low_cpu_mem_usage": True,
         "token": HF_TOKEN,

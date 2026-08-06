@@ -208,7 +208,7 @@ def main():
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
 
-    if quant is not None:
+    if rt["use_4bit"]:
         from peft import prepare_model_for_kbit_training
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
